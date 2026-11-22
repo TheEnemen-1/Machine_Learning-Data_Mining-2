@@ -1,0 +1,961 @@
+\documentclass[12pt, a4paper]{article}
+
+% --- BASIC PACKAGES & FONTS ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}      % Clean horizontal rules for tables
+\usepackage{float}         % Exact placement for figures/tables [H]
+\usepackage{caption}
+\usepackage{subcaption}    % Side-by-side figures
+\usepackage{hyperref}
+
+% --- PAGE MARGINS ---
+\usepackage[top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm, headheight=28pt]{geometry}
+
+% --- HEADER & FOOTER CONFIGURATION ---
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+% Small USTH logo on top-left
+\fancyhead[L]{\includegraphics[height=0.75cm]{usth_logo.png}}
+% Course & Report title on top-right
+\fancyhead[R]{\small Machine Learning and Data Mining II - Report: Labwork 1}
+% Horizontal line under header
+\renewcommand{\headrulewidth}{0.5pt}
+% Centered page number in footer
+\fancyfoot[C]{\thepage}
+
+% --- CAPTION FORMATTING ---
+\captionsetup{labelfont=bf, font=small}
+
+% --- HYPERLINK STYLING ---
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    citecolor=blue,
+    urlcolor=blue
+}
+
+\usepackage[none]{hyphenat}
+\sloppy
+
+\begin{document}
+
+% --- TITLE PAGE  ---
+% Render the cover's Unicode dash with the existing T1 fonts under XeTeX.
+\ifdefined\XeTeXversion
+  \begingroup\lccode`\~="2013
+  \lowercase{\endgroup\def~}{--}
+  \catcode"2013=\active
+\fi
+\setlength{\emergencystretch}{1em}
+\hypersetup{pageanchor=false}
+\input{cover.tex}
+\thispagestyle{empty}
+\newpage
+
+% --- TABLE OF CONTENTS  ---
+\setcounter{page}{1}
+\hypersetup{pageanchor=true}
+\tableofcontents
+\newpage
+
+
+
+
+
+\section*{Introduction}
+\addcontentsline{toc}{section}{Introduction}
+This labwork studies data preparation, statistical relationships and principal component analysis (PCA) on the public Stroke Prediction Dataset and Spotify Dataset. Both have more than six input features, as required by the assignment~\cite{assignment}. The analysis first establishes the representation and quality of each dataset, then examines the variance retained by lower-dimensional projections. Labels are used to describe groups in plots, not to fit PCA.
+
+\section{Stroke Prediction Dataset}
+\subsection{Dataset Overview}
+The Stroke Prediction Dataset is distributed by fedesoriano on Kaggle~\cite{stroke-data}. The local file \texttt{healthcare-dataset-stroke-data.csv} contains \textbf{5,110 records} and 12 columns. Excluding the internal identifier \texttt{id} and target \texttt{stroke} leaves \textbf{ten input variables}. Each row is an observation and each column an attribute, following the matrix representation introduced in the lectures~\cite{dm2,dm3}.
+
+The attributes describe demographic characteristics, recorded health conditions and lifestyle information. The file is analyzed as a static cross-sectional benchmark table. It supplies no timestamps or follow-up windows, and its schema does not establish population origin, sampling protocols or the original study design. Results therefore describe this dataset rather than prospective clinical risk or causal effects.
+
+\subsection{Data Analysis}
+\subsubsection{Variable types and target}
+Table~\ref{tab:stroke-types} classifies the raw variables. Integer-coded \texttt{hypertension} and \texttt{heart\_disease} are binary nominal attributes rather than continuous measurements. Age recorded in completed years is a discrete representation, but fractional pediatric ages such as 0.08 years justify treating age as continuous here. Raw gender has three levels (Female, Male and Other); it becomes binary only after cleaning. Differences between arbitrary record identifiers have no documented clinical meaning, so \texttt{id} is excluded from PCA.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Variable types in the raw Stroke dataset.}
+\label{tab:stroke-types}
+\begin{tabular}{p{.25\linewidth}p{.14\linewidth}p{.17\linewidth}p{.24\linewidth}r}
+\toprule
+\raggedright \textbf{Attribute} & \raggedright \textbf{Discrete / Continuous} & \raggedright \textbf{Quantitative / Qualitative} & \raggedright \textbf{Representation} & \textbf{Levels} \tabularnewline
+\midrule
+\raggedright id & \raggedright Discrete & \raggedright Qualitative & \raggedright Nominal identifier & 5,110 \tabularnewline
+\raggedright gender & \raggedright Discrete & \raggedright Qualitative & \raggedright Multi-class nominal & 3 \tabularnewline
+\raggedright age & \raggedright Continuous & \raggedright Quantitative & \raggedright Numerical & --- \tabularnewline
+\raggedright hypertension & \raggedright Discrete & \raggedright Qualitative & \raggedright Binary nominal & 2 \tabularnewline
+\raggedright heart\_disease & \raggedright Discrete & \raggedright Qualitative & \raggedright Binary nominal & 2 \tabularnewline
+\raggedright ever\_married & \raggedright Discrete & \raggedright Qualitative & \raggedright Binary nominal & 2 \tabularnewline
+\raggedright work\_type & \raggedright Discrete & \raggedright Qualitative & \raggedright Multi-class nominal & 5 \tabularnewline
+\raggedright Residence\_type & \raggedright Discrete & \raggedright Qualitative & \raggedright Binary nominal & 2 \tabularnewline
+\raggedright avg\_glucose\_level & \raggedright Continuous & \raggedright Quantitative & \raggedright Numerical & --- \tabularnewline
+\raggedright bmi & \raggedright Continuous & \raggedright Quantitative & \raggedright Numerical & --- \tabularnewline
+\raggedright smoking\_status & \raggedright Discrete & \raggedright Qualitative & \raggedright Multi-class nominal & 4 \tabularnewline
+\raggedright stroke & \raggedright Discrete & \raggedright Qualitative & \raggedright Binary target & 2 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+The label records whether a stroke has occurred: 249 records have \texttt{stroke}=1 (\textbf{4.87\%}) and 4,861 have \texttt{stroke}=0 (95.13\%). Figure~\ref{fig:stroke-target} shows the resulting 19.52:1 imbalance. A majority-only classifier would obtain 95.13\% accuracy while identifying no stroke records. No Stroke does not mean absence of other conditions. The label supports binary classification, but the file cannot validate future-event prediction without temporal information. It is excluded from the PCA fit.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.94\textwidth,height=.78\textheight,keepaspectratio]{nhat_stroke/figures/fig1_target.png}
+\caption{Recorded stroke status in the raw dataset ($n=5{,}110$).}
+\label{fig:stroke-target}
+\end{figure}
+
+\subsubsection{Data quality assessment}
+Tables~\ref{tab:stroke-missing}--\ref{tab:stroke-domain} distinguish missing markers, associations with missingness and consistency checks. BMI contains 201 NaNs (3.93\%), while smoking information is unavailable for 1,544 records (30.22\%), stored as the category Unknown. Within the children work group, 618 of 687 records have Unknown smoking status (89.96\%). This association does not establish a particular data-entry process. BMI missingness is 16.06\% among stroke records and 3.31\% among no-stroke records; the difference deserves attention during imputation but does not identify the missing-data mechanism.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Missingness markers in the raw Stroke data.}
+\label{tab:stroke-missing}
+\begin{tabular}{p{.26\linewidth}p{.32\linewidth}rr}
+\toprule
+\raggedright \textbf{Field} & \raggedright \textbf{Marker} & \textbf{Records} & \textbf{Percent} \tabularnewline
+\midrule
+\raggedright bmi & \raggedright NaN (syntactic) & 201 & 3.93 \tabularnewline
+\raggedright smoking\_status & \raggedright Unknown (semantic) & 1,544 & 30.22 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Smoking-information availability by work type in the raw data.}
+\label{tab:stroke-smoking}
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Work type} & \textbf{Known} & \textbf{Unknown} & \textbf{Total} & \textbf{Unknown (\%)} \tabularnewline
+\midrule
+Govt\_job & 535 & 122 & 657 & 18.57 \tabularnewline
+Never\_worked & 14 & 8 & 22 & 36.36 \tabularnewline
+Private & 2285 & 640 & 2925 & 21.88 \tabularnewline
+Self-employed & 663 & 156 & 819 & 19.05 \tabularnewline
+children & 69 & 618 & 687 & 89.96 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{BMI missingness by recorded stroke status in the raw data.}
+\label{tab:stroke-missing-target}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{stroke} & \textbf{Records} & \textbf{Missing BMI} & \textbf{Missing (\%)} \tabularnewline
+\midrule
+0 & 4861 & 161 & 3.31 \tabularnewline
+1 & 249 & 40 & 16.06 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+There are no exact duplicate rows, with or without \texttt{id}. This does not prove that every record belongs to a different person. Domain checks find no invalid codes under the stated rules; cross-field checks are screens for manual review. The IQR rule defines fences by
+\[
+\mathrm{IQR}=Q_3-Q_1,\qquad
+[Q_1-1.5\,\mathrm{IQR},\ Q_3+1.5\,\mathrm{IQR}].
+\]
+It flags no age values, 627 glucose values (12.27\%) and 110 observed BMI values (2.24\%). Figure~\ref{fig:stroke-boxplots} shows their distributions. Statistical outliers are not verified recording errors. Extreme observations and missing-value handling can alter means and covariance, and may consequently affect PCA directions~\cite{dm2}.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Domain checks and IQR outlier screening in the raw Stroke data.}
+\label{tab:stroke-domain}
+\begin{tabular}{p{.62\linewidth}rp{.19\linewidth}}
+\toprule
+\raggedright \textbf{Check} & \textbf{Flagged} & \raggedright \textbf{Type} \tabularnewline
+\midrule
+\raggedright Age < 0 & 0 & \raggedright Domain \tabularnewline
+\raggedright Glucose <= 0 & 0 & \raggedright Domain \tabularnewline
+\raggedright Observed BMI <= 0 & 0 & \raggedright Domain \tabularnewline
+\raggedright Binary fields outside \{0, 1\} & 0 & \raggedright Domain \tabularnewline
+\raggedright Unexpected nominal category & 0 & \raggedright Domain \tabularnewline
+\raggedright Children work group and married & 0 & \raggedright Review flag \tabularnewline
+\raggedright Age < 18 and married & 0 & \raggedright Review flag \tabularnewline
+\raggedright Age >= 18 and children work group & 0 & \raggedright Review flag \tabularnewline
+\bottomrule
+\end{tabular}
+\par\medskip
+\begin{tabular}{p{.25\linewidth}rrp{.22\linewidth}rr}
+\toprule
+\raggedright \textbf{Variable} & \textbf{Q1} & \textbf{Q3} & \raggedright \textbf{IQR fences} & \textbf{Flagged} & \textbf{Percent} \tabularnewline
+\midrule
+\raggedright age & 25.00 & 61.00 & \raggedright -29.00--115.00 & 0 & 0.00 \tabularnewline
+\raggedright avg\_glucose\_level & 77.25 & 114.09 & \raggedright 21.98--169.36 & 627 & 12.27 \tabularnewline
+\raggedright bmi & 23.50 & 33.10 & \raggedright 9.10--47.50 & 110 & 2.24 \tabularnewline
+\bottomrule
+\end{tabular}
+\par\smallskip{\footnotesize Cross-field flags prompt manual review. BMI outlier percentages use observed BMI values.}
+\end{table}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.94\textwidth,height=.78\textheight,keepaspectratio]{nhat_stroke/figures/fig2_boxplots.png}
+\caption{Observed numerical distributions in the raw Stroke data. Axes retain their recorded scales.}
+\label{fig:stroke-boxplots}
+\end{figure}
+
+\subsubsection{Cleaning and before--after comparison}
+The pipeline removes \texttt{id}, excludes the single Other gender record, fills 201 missing BMI values with the median 28.10, and caps BMI above 60.0. The gender exclusion is a pragmatic choice for binary encoding, not a judgment that the category is erroneous. It reduces category representation. Unknown smoking status is retained instead of fabricating information for 30.22\% of records.
+
+Table~\ref{tab:stroke-cleaning} compares raw and cleaned data. The BMI cap affects 13 records, all labeled No Stroke. It is a heuristic to limit extreme squared leverage, not a physiological boundary; those values have not been verified as errors. Median imputation resists extreme values but introduces a point concentration at 28.10 and changes associations.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Stroke data before and after cleaning.}
+\label{tab:stroke-cleaning}
+\begin{tabular}{p{.48\linewidth}rr}
+\toprule
+\raggedright \textbf{Measure} & \textbf{Before} & \textbf{After} \tabularnewline
+\midrule
+\raggedright Records & 5,110 & 5,109 \tabularnewline
+\raggedright Non-null BMI & 4,909 & 5,109 \tabularnewline
+\raggedright Missing BMI & 201 & 0 \tabularnewline
+\raggedright Gender = Other & 1 & 0 \tabularnewline
+\raggedright Smoking = Unknown & 1,544 & 1,544 \tabularnewline
+\raggedright BMI > 60 & 13 & 0 \tabularnewline
+\bottomrule
+\end{tabular}
+\par\medskip
+\begin{tabular}{llrrrr}
+\toprule
+\textbf{Variable} & \textbf{Stage} & \textbf{Range} & \textbf{Mean} & \textbf{SD} & \textbf{Variance} \tabularnewline
+\midrule
+Age & Before & 0.08--82.00 & 43.2266 & 22.6126 & 511.3318 \tabularnewline
+Age & After & 0.08--82.00 & 43.2300 & 22.6136 & 511.3738 \tabularnewline
+Glucose & Before & 55.12--271.74 & 106.1477 & 45.2836 & 2050.6008 \tabularnewline
+Glucose & After & 55.12--271.74 & 106.1404 & 45.2850 & 2050.7316 \tabularnewline
+BMI & Before & 10.30--97.60 & 28.8932 & 7.8541 & 61.6864 \tabularnewline
+BMI & After & 10.30--60.00 & 28.8391 & 7.5624 & 57.1903 \tabularnewline
+\bottomrule
+\end{tabular}
+\par\smallskip{\footnotesize Before-cleaning BMI statistics use 4,909 observed values; SD and variance use $n-1$.}
+\end{table}
+
+Table~\ref{tab:stroke-bmi-variance} separates the BMI variance changes: 61.6864 before cleaning, 61.6903 after excluding Other, 59.2867 after imputation and 57.1903 after capping. Thus both imputation and capping contribute to the reduction. Age and glucose measurements are not directly modified, but their aggregate statistics shift slightly when one record is removed.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Stepwise sample variance of BMI during cleaning.}
+\label{tab:stroke-bmi-variance}
+\begin{tabular}{p{.50\linewidth}rr}
+\toprule
+\raggedright \textbf{Stage} & \textbf{Non-null BMI} & \textbf{Sample variance} \tabularnewline
+\midrule
+\raggedright Raw observed values & 4909 & 61.6864 \tabularnewline
+\raggedright After excluding Other & 4908 & 61.6903 \tabularnewline
+\raggedright After median imputation & 5109 & 59.2867 \tabularnewline
+\raggedright After BMI cap & 5109 & 57.1903 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Data integration}
+Additional clinical or environmental records could provide context, but no compatible linkage is supplied. The raw \texttt{id} has no external registry mapping; Rural/Urban residence categories are not geographic keys, and timestamps and hospital identifiers are absent. Integration is investigated but not performed, consistent with the assignment's conditional requirement. No specific privacy-law process is inferred from the schema, and unsupported joins could introduce misleading associations.
+
+\subsubsection{Transformation and scaling}
+Binary mapping represents gender, ever-married status and residence with one column each. Full one-hot encoding represents the five work types and four smoking categories without imposing an order. Together with the other inputs, this yields \textbf{17 encoded columns}. Mean-centering is part of covariance-based PCA; scaling is a separate choice~\cite{dm2,dm3}. Here, glucose sample variance is 2050.73, more than 8,000 times the approximate upper bound 0.25 for binary-feature variance. We therefore use
+\begin{align}
+z_{ij}&=\frac{x_{ij}-\mu_j}{\sigma_j}, &
+\mu_j&=\frac1n\sum_i x_{ij}, &
+\sigma_j^2&=\frac1n\sum_i(x_{ij}-\mu_j)^2.
+\end{align}
+The implementation uses \texttt{StandardScaler}~\cite{sklearn}, with denominator $n$. All 17 columns have means approximately zero and variance one under this convention. Min--max scaling, $(x-x_{\min})/(x_{\max}-x_{\min})$, is an alternative, but its endpoints depend on extremes. Neither transformation makes PCA insensitive to outliers.
+
+Encoding changes weighting as well as representation. Work type and smoking status contribute nine of 17 standardized columns, or 52.94\% of total variance before PCA. Equal variance per column is not equal weight per original variable. For example, the Never\_worked dummy occurs 22 times, reaches 15.21 when active after standardization, and has a PC7 coefficient of approximately 0.78.
+
+\subsubsection{Statistical measures and categorical associations}
+The numerical summaries in Table~\ref{tab:stroke-stats} use the empirical first raw moment and sample variance~\cite{dm25,dm3}:
+\[
+\bar x=\frac1n\sum_i x_i,\qquad
+s^2=\frac1{n-1}\sum_i(x_i-\bar x)^2,\qquad s=\sqrt{s^2}.
+\]
+Means alone do not describe skewness or the mixture of pediatric and adult records, and a mean BMI or glucose value is not a diagnosis. Nominal variables are summarized through modes, frequencies and contingency tables rather than numerical means.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Numerical statistics of the cleaned Stroke data.}
+\label{tab:stroke-stats}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Variable} & \textbf{Mean} & \textbf{SD} & \textbf{Variance} \tabularnewline
+\midrule
+age & 43.2300 & 22.6136 & 511.3738 \tabularnewline
+avg\_glucose\_level & 106.1404 & 45.2850 & 2050.7316 \tabularnewline
+bmi & 28.8391 & 7.5624 & 57.1903 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+For observed frequencies $O_{rc}$ and expected counts $E_{rc}=N_{r\cdot}N_{\cdot c}/n$, Pearson's independence statistic and its degrees of freedom are
+\[
+\chi^2=\sum_{r,c}\frac{(O_{rc}-E_{rc})^2}{E_{rc}},\qquad df=(R-1)(C-1).
+\]
+The implemented $2\times2$ tests use Yates' continuity correction:
+\[
+\chi_Y^2=\sum_{r,c}\frac{\max(|O_{rc}-E_{rc}|-0.5,0)^2}{E_{rc}}.
+\]
+Tables~\ref{tab:stroke-categories} and~\ref{tab:stroke-rates} report the tests and empirical rates. Stroke prevalence is 17.03\% with heart disease versus 4.18\% without, and 13.25\% with hypertension versus 3.97\% without. These are associations, not causal or confounding-adjusted effects. Work type has a minimum expected count of 1.07, limiting the asymptotic interpretation. For gender ($p=0.560$) and residence ($p=0.300$), there is insufficient evidence to reject independence at 0.05; identical prevalence has not been proved. The tests are exploratory and unadjusted for age, other covariates or multiple comparisons.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Categorical summaries and association tests in the cleaned Stroke data.}
+\label{tab:stroke-categories}
+\begin{tabular}{p{.27\linewidth}rp{.24\linewidth}r}
+\toprule
+\raggedright \textbf{Feature} & \textbf{Levels} & \raggedright \textbf{Mode} & \textbf{Mode count (\%)} \tabularnewline
+\midrule
+\raggedright gender & 2 & \raggedright Female & 2,994 (58.6\%) \tabularnewline
+\raggedright hypertension & 2 & \raggedright 0 & 4,611 (90.3\%) \tabularnewline
+\raggedright heart\_disease & 2 & \raggedright 0 & 4,833 (94.6\%) \tabularnewline
+\raggedright ever\_married & 2 & \raggedright Yes & 3,353 (65.6\%) \tabularnewline
+\raggedright work\_type & 5 & \raggedright Private & 2,924 (57.2\%) \tabularnewline
+\raggedright Residence\_type & 2 & \raggedright Urban & 2,596 (50.8\%) \tabularnewline
+\raggedright smoking\_status & 4 & \raggedright never smoked & 1,892 (37.0\%) \tabularnewline
+\bottomrule
+\end{tabular}
+\par\medskip
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Feature} & \textbf{Chi2} & \textbf{df} & \textbf{p-value} & \textbf{Min expected} \tabularnewline
+\midrule
+gender & 0.3400 & 1 & 5.5983e-01 & 103.08 \tabularnewline
+hypertension & 81.5731 & 1 & 1.6889e-19 & 24.27 \tabularnewline
+heart\_disease & 90.2294 & 1 & 2.1208e-21 & 13.45 \tabularnewline
+ever\_married & 58.8678 & 1 & 1.6863e-14 & 85.58 \tabularnewline
+work\_type & 49.1591 & 4 & 5.4090e-10 & 1.07 \tabularnewline
+Residence\_type & 1.0750 & 1 & 2.9983e-01 & 122.48 \tabularnewline
+smoking\_status & 29.2257 & 3 & 2.0077e-06 & 38.45 \tabularnewline
+\bottomrule
+\end{tabular}
+\par\smallskip{\footnotesize The $2	\times 2$ tests use Yates correction. The remaining tests use Pearson chi-square.}
+\end{table}
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Category-specific empirical stroke rates in the cleaned data.}
+\label{tab:stroke-rates}
+\begin{tabular}{p{.48\linewidth}rrr}
+\toprule
+\raggedright \textbf{Feature / category} & \textbf{Records} & \textbf{Stroke records} & \textbf{Stroke (\%)} \tabularnewline
+\midrule
+\raggedright gender: Female & 2,994 & 141 & 4.71 \tabularnewline
+\raggedright gender: Male & 2,115 & 108 & 5.11 \tabularnewline
+\raggedright hypertension: 0 & 4,611 & 183 & 3.97 \tabularnewline
+\raggedright hypertension: 1 & 498 & 66 & 13.25 \tabularnewline
+\raggedright heart\_disease: 0 & 4,833 & 202 & 4.18 \tabularnewline
+\raggedright heart\_disease: 1 & 276 & 47 & 17.03 \tabularnewline
+\raggedright ever\_married: No & 1,756 & 29 & 1.65 \tabularnewline
+\raggedright ever\_married: Yes & 3,353 & 220 & 6.56 \tabularnewline
+\raggedright work\_type: Govt\_job & 657 & 33 & 5.02 \tabularnewline
+\raggedright work\_type: Never\_worked & 22 & 0 & 0.00 \tabularnewline
+\raggedright work\_type: Private & 2,924 & 149 & 5.10 \tabularnewline
+\raggedright work\_type: Self-employed & 819 & 65 & 7.94 \tabularnewline
+\raggedright work\_type: children & 687 & 2 & 0.29 \tabularnewline
+\raggedright Residence\_type: Rural & 2,513 & 114 & 4.54 \tabularnewline
+\raggedright Residence\_type: Urban & 2,596 & 135 & 5.20 \tabularnewline
+\raggedright smoking\_status: Unknown & 1,544 & 47 & 3.04 \tabularnewline
+\raggedright smoking\_status: formerly smoked & 884 & 70 & 7.92 \tabularnewline
+\raggedright smoking\_status: never smoked & 1,892 & 90 & 4.76 \tabularnewline
+\raggedright smoking\_status: smokes & 789 & 42 & 5.32 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Covariance and correlation}
+Sample covariance and Pearson correlation are
+\[
+s_{xy}=\frac1{n-1}\sum_i(x_i-\bar x)(y_i-\bar y),\qquad r_{xy}=\frac{s_{xy}}{s_xs_y}.
+\]
+With $Z=X_{\mathrm{scaled}}$, population variance one per column gives
+\begin{equation}
+R=\frac1nZ^TZ,\qquad C=\frac1{n-1}Z^TZ
+=\frac{n}{n-1}R\approx1.00019577R.
+\end{equation}
+Figure~\ref{fig:stroke-covariance} shows that the standardized sample covariance diagonal is approximately 1.0002. The common factor leaves eigenvectors and EVRs unchanged.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.94\textwidth,height=.78\textheight,keepaspectratio]{nhat_stroke/figures/fig3_covariance.png}
+\caption{Sample covariance of cleaned numerical measurements (top) and standardized features (bottom).}
+\label{fig:stroke-covariance}
+\end{figure}
+\clearpage
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.94\textwidth,height=.78\textheight,keepaspectratio]{nhat_stroke/figures/fig4a_corr_main.png}
+\caption{Pearson correlations of cleaned numerical Stroke features and the recorded target.}
+\label{fig:stroke-corr-main}
+\end{figure}
+\clearpage
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.92\textwidth,height=.78\textheight,keepaspectratio]{nhat_stroke/figures/fig4b_corr_full.png}
+\caption{Full Pearson correlation matrix of cleaned encoded Stroke inputs and the target. Values are shown to two decimals; the redundant upper triangle is omitted.}
+\label{fig:stroke-corr-full}
+\end{figure}
+
+Figures~\ref{fig:stroke-corr-main} and~\ref{fig:stroke-corr-full} show the numerical and full encoded correlation matrices. From Table~\ref{tab:stroke-correlations}, the strongest input pair in absolute magnitude is age and ever-married status, $r=+0.6791$. Negative correlations between mutually exclusive dummies have a structural component: Private and Self-employed have $r=-0.5054$. This differs from relationships between distinct original attributes. The children--Unknown association supports the missingness cross-tabulation without identifying its cause. Pearson correlation measures linear association only, and correlation does not establish causation~\cite{dm25}.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Strongest absolute correlations in the cleaned encoded Stroke data.}
+\label{tab:stroke-correlations}
+\begin{tabular}{p{.38\linewidth}p{.38\linewidth}r}
+\toprule
+\raggedright \textbf{Input A} & \raggedright \textbf{Input B} & \textbf{Pearson r} \tabularnewline
+\midrule
+\raggedright age & \raggedright ever\_married & +0.6791 \tabularnewline
+\raggedright age & \raggedright work\_type\_children & -0.6343 \tabularnewline
+\raggedright ever\_married & \raggedright work\_type\_children & -0.5447 \tabularnewline
+\raggedright work\_type\_children & \raggedright smoking\_status\_Unknown & +0.5127 \tabularnewline
+\raggedright work\_type\_Private & \raggedright work\_type\_Self-employed & -0.5054 \tabularnewline
+\bottomrule
+\end{tabular}
+\par\medskip
+\begin{tabular}{p{.65\linewidth}r}
+\toprule
+\raggedright \textbf{Input versus stroke} & \textbf{Pearson r} \tabularnewline
+\midrule
+\raggedright age & +0.2452 \tabularnewline
+\raggedright heart\_disease & +0.1349 \tabularnewline
+\raggedright avg\_glucose\_level & +0.1320 \tabularnewline
+\raggedright hypertension & +0.1279 \tabularnewline
+\raggedright ever\_married & +0.1083 \tabularnewline
+\bottomrule
+\end{tabular}
+\par\smallskip{\footnotesize The first block contains input--input pairs; the second contains input--target associations.}
+\end{table}
+
+\subsubsection{Summary of data preparation}
+Table~\ref{tab:stroke-state} records the final representation: \textbf{5,109 observations}, 17 inputs and no numerical NaNs. Cleaning, encoding and scaling make the data usable for PCA, but results remain conditional on excluding one gender record, median concentration, 13 capped BMI values, unequal column counts across original variables, and different missingness rates by target. External integration is not performed.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Final state of the cleaned and standardized Stroke representation.}
+\label{tab:stroke-state}
+\begin{tabular}{p{.61\linewidth}p{.30\linewidth}}
+\toprule
+\raggedright \textbf{Property} & \raggedright \textbf{Final status} \tabularnewline
+\midrule
+\raggedright Records & \raggedright 5,109 \tabularnewline
+\raggedright Original input variables & \raggedright 10 \tabularnewline
+\raggedright Encoded input columns & \raggedright 17 \tabularnewline
+\raggedright Stroke / No Stroke & \raggedright 249 / 4,860 \tabularnewline
+\raggedright Remaining numerical NaN & \raggedright 0 \tabularnewline
+\raggedright Smoking Unknown retained & \raggedright 1,544 \tabularnewline
+\raggedright Feature means & \raggedright [-1.61e-16, 1.22e-16] \tabularnewline
+\raggedright Variance (ddof=0) & \raggedright [1.0000, 1.0000] \tabularnewline
+\raggedright Sample variance (ddof=1) & \raggedright [1.0002, 1.0002] \tabularnewline
+\raggedright External integration & \raggedright Investigated; not performed \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Principal Component Analysis}
+\subsubsection{Computation and numerical checks}
+Following the lecture procedure~\cite{dm3}, PCA forms the covariance of centered data, computes its eigenvectors and selects the directions of greatest variance:
+\begin{align}
+C&=\frac1{n-1}Z^TZ,& C\mathbf v_j&=\lambda_j\mathbf v_j,\\
+V^TV&=I,& \lambda_1&\ge\cdots\ge\lambda_d\ge0,\qquad Y_p=ZV_p.
+\end{align}
+The fitted solver policy is \texttt{auto}, which selects \texttt{covariance\_eigh} in the recorded environment. Manual covariance eigendecomposition agrees with the fitted eigenvalues within $1.1794\times10^{-15}$; the orthonormality discrepancy is $2.6645\times10^{-15}$. These are floating-point consistency checks, not an independent full-SVD benchmark. SVD provides another route,
+\[
+Z=USV^T,\qquad \lambda_j=\frac{s_j^2}{n-1},
+\]
+and can avoid explicitly forming a $d\times d$ covariance matrix when $d$ is large.
+
+\subsubsection{Explained variance and component selection}
+For this covariance convention,
+\begin{align}
+\operatorname{tr}(C)&=\sum_{j=1}^d\lambda_j=d\frac{n}{n-1}\approx17.0033,\\
+\mathrm{EVR}_j&=\frac{\lambda_j}{\sum_{k=1}^d\lambda_k},&
+\mathrm{CEVR}_p&=\frac{\sum_{j=1}^p\lambda_j}{\sum_{k=1}^d\lambda_k}.
+\end{align}
+Table~\ref{tab:stroke-evr} reports percentages from these ratios. Figure~\ref{fig:stroke-scree} declines gradually without a sharp single elbow. The primary choice is the smallest dimension reaching 80\% variance: \textbf{ten PCs} retain \textbf{82.21\%} and reduce columns by 41.2\%. \textbf{Twelve PCs} reach the 90\% target with \textbf{92.08\%} retention and 29.4\% reduction, consistent with the lecture's 80--90\% guidance~\cite{dm3}.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{PCA eigenvalues and variance ratios for standardized Stroke inputs.}
+\label{tab:stroke-evr}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{PC} & \textbf{Eigenvalue} & \textbf{EVR (\%)} & \textbf{Cumulative (\%)} \tabularnewline
+\midrule
+PC1 & 3.3874 & 19.92 & 19.92 \tabularnewline
+PC2 & 1.7396 & 10.23 & 30.15 \tabularnewline
+PC3 & 1.4734 & 8.67 & 38.82 \tabularnewline
+PC4 & 1.2454 & 7.32 & 46.14 \tabularnewline
+PC5 & 1.1653 & 6.85 & 53.00 \tabularnewline
+PC6 & 1.1243 & 6.61 & 59.61 \tabularnewline
+PC7 & 1.0344 & 6.08 & 65.69 \tabularnewline
+PC8 & 0.9801 & 5.76 & 71.46 \tabularnewline
+PC9 & 0.9360 & 5.51 & 76.96 \tabularnewline
+PC10 & 0.8920 & 5.25 & 82.21 \tabularnewline
+PC11 & 0.8691 & 5.11 & 87.32 \tabularnewline
+PC12 & 0.8096 & 4.76 & 92.08 \tabularnewline
+PC13 & 0.6860 & 4.03 & 96.11 \tabularnewline
+PC14 & 0.4202 & 2.47 & 98.59 \tabularnewline
+PC15 & 0.2405 & 1.41 & 100.00 \tabularnewline
+PC16 & 0.0000 & 0.00 & 100.00 \tabularnewline
+PC17 & 0.0000 & 0.00 & 100.00 \tabularnewline
+\bottomrule
+\end{tabular}
+\par\smallskip{\footnotesize Ratios are calculated before rounding. Near-zero eigenvalues are shown to four decimal places.}
+\end{table}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.94\textwidth,height=.78\textheight,keepaspectratio]{nhat_stroke/figures/fig5_scree.png}
+\caption{Scree plot and cumulative explained variance of standardized Stroke inputs.}
+\label{fig:stroke-scree}
+\end{figure}
+
+Kaiser's rule is a comparison, retaining seven PCs and 65.69\% variance. Its reference of one concerns standardized-variable variance in correlation PCA, not an eigenvalue assigned to each original feature. Here the equivalent threshold is $\lambda_j>n/(n-1)\approx1.0002$. Full one-hot groups each sum to one; after centering/scaling, each gives a constraint $\sum_k\sigma_kz_k=0$. The covariance rank is 15, producing two theoretically zero-variance directions, PC16 and PC17. These are degeneracies rather than evidence of noise. High variance does not guarantee target relevance, and low non-zero variance does not imply zero association. PCA is feature extraction, not selection of original variables~\cite{dm25}.
+
+\subsubsection{Varying the retained dimension and reconstruction}
+All projections and reconstructions use the same fitted basis:
+\begin{align}
+Y_p&=ZV_p,& \hat Z&=Y_pV_p^T,\\
+\mathrm{MSE}(p)&=\frac1{nd}\lVert Z-\hat Z\rVert_F^2
+=\frac{n-1}{nd}\sum_{j=p+1}^d\lambda_j
+=1-\mathrm{CEVR}_p.
+\end{align}
+CEVR is a ratio in $[0,1]$. The final equality uses unit population variance in every standardized column; it is not a general identity for unscaled data. The implementation adds the fitted mean to account for residual floating-point centering.
+
+Table~\ref{tab:stroke-reconstruction} and Figure~\ref{fig:stroke-reconstruction} show the trade-off. At ten PCs the MSE is \textbf{0.17793}; empirical and corrected theoretical errors differ by at most $2.2204\times10^{-16}$. Retained variance and MSE are mathematically coupled, not independent evidence of predictive quality. Fifteen PCs recover the preprocessed standardized matrix to numerical precision, without restoring missing BMI, uncapped values or the excluded record.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Stroke dimensionality reduction, retained variance and reconstruction error.}
+\label{tab:stroke-reconstruction}
+\begin{tabular}{rrrr}
+\toprule
+\textbf{p} & \textbf{Reduction (\%)} & \textbf{Retained (\%)} & \textbf{Discarded (\%)} \tabularnewline
+\midrule
+1 & 94.1 & 19.92 & 80.08 \tabularnewline
+2 & 88.2 & 30.15 & 69.85 \tabularnewline
+3 & 82.4 & 38.82 & 61.18 \tabularnewline
+5 & 70.6 & 53.00 & 47.00 \tabularnewline
+7 & 58.8 & 65.69 & 34.31 \tabularnewline
+10 & 41.2 & 82.21 & 17.79 \tabularnewline
+12 & 29.4 & 92.08 & 7.92 \tabularnewline
+14 & 17.6 & 98.59 & 1.41 \tabularnewline
+15 & 11.8 & 100.00 & 0.00 \tabularnewline
+17 & 0.0 & 100.00 & 0.00 \tabularnewline
+\bottomrule
+\end{tabular}
+\par\medskip
+\begin{tabular}{rrr}
+\toprule
+\textbf{p} & \textbf{Empirical MSE} & \textbf{Corrected MSE} \tabularnewline
+\midrule
+1 & 0.80078 & 0.80078 \tabularnewline
+2 & 0.69847 & 0.69847 \tabularnewline
+3 & 0.61182 & 0.61182 \tabularnewline
+5 & 0.47003 & 0.47003 \tabularnewline
+7 & 0.34308 & 0.34308 \tabularnewline
+10 & 0.17793 & 0.17793 \tabularnewline
+12 & 0.07920 & 0.07920 \tabularnewline
+14 & 0.01414 & 0.01414 \tabularnewline
+15 & 0.00000 & 0.00000 \tabularnewline
+17 & 0.00000 & 0.00000 \tabularnewline
+\bottomrule
+\end{tabular}
+\par\smallskip{\footnotesize Values printed as 0.00000 are interpreted within floating-point precision.}
+\end{table}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.94\textwidth,height=.78\textheight,keepaspectratio]{nhat_stroke/figures/fig6_reconstruction.png}
+\caption{Retained variance and reconstruction MSE for different numbers of Stroke PCs.}
+\label{fig:stroke-reconstruction}
+\end{figure}
+
+\subsubsection{Two-dimensional distributions}
+Figure~\ref{fig:stroke-projection} uses scores from the same fitted PCA. PC1 and PC2 retain 19.92\% and 10.23\%, totaling \textbf{30.15\%}. The No Stroke centroid is $[0.0698,0.0295]$ and the Stroke centroid is $[-1.3625,-0.5756]$; their distance is \textbf{1.5549}. In this sign convention the Stroke centroid shifts toward negative PC1. The groups overlap substantially. The cleaned class ratio is 19.52:1, PCA does not use labels, and the plot omits most variance; these facts limit interpretation without establishing a unique cause of overlap or individual classification accuracy.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.94\textwidth,height=.78\textheight,keepaspectratio]{nhat_stroke/figures/fig7_pca_2d.png}
+\caption{Stroke projections onto PC1--PC2 and PC14--PC15 from the same fitted PCA basis. Panel scales differ.}
+\label{fig:stroke-projection}
+\end{figure}
+
+The last two non-zero PCs, PC14--PC15, retain 3.89\% together, summed before rounding. The one-hot constraints account for PC16--PC17 and do not explain the full geometry of PC14--PC15. In particular, $r(\mathrm{PC15},\mathrm{stroke})=0.1473$ is a descriptive association, so low variance does not establish zero diagnostic utility. No out-of-sample prediction is validated. Eigenvector signs may reverse under another valid convention; scores, coefficients and interpretations must remain consistent.
+
+\subsubsection{Weights and critical evaluation}
+Figure~\ref{fig:stroke-weights} and Table~\ref{tab:stroke-weights} show unit-norm weights $V$ used in $Y=ZV$. Scaled loadings under another convention are $L=V\sqrt{\Lambda}$. For a component with positive variance ($\lambda_j>0$), the feature--score correlation is
+\[
+\operatorname{Corr}(Z_k,Y_j)=\frac{v_{kj}\sqrt{\lambda_j}}{\sqrt{n/(n-1)}}.
+\]
+It is undefined at $\lambda_j=0$. The weights, scaled loadings and correlations are related but not interchangeable.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.94\textwidth,height=.78\textheight,keepaspectratio]{nhat_stroke/figures/fig8_weights.png}
+\caption{Unit-norm eigenvector weights for PC1--PC7 of standardized Stroke inputs.}
+\label{fig:stroke-weights}
+\end{figure}
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Selected eigenvector weights for standardized Stroke inputs.}
+\label{tab:stroke-weights}
+\begin{tabular}{p{.62\linewidth}rr}
+\toprule
+\raggedright \textbf{Encoded feature} & \textbf{PC1} & \textbf{PC2} \tabularnewline
+\midrule
+\raggedright work\_type\_children & +0.4534 & -0.1583 \tabularnewline
+\raggedright age & -0.4497 & -0.1772 \tabularnewline
+\raggedright ever\_married & -0.4076 & -0.0803 \tabularnewline
+\raggedright smoking\_status\_Unknown & +0.3712 & -0.1436 \tabularnewline
+\raggedright bmi & -0.3133 & +0.0771 \tabularnewline
+\raggedright work\_type\_Private & -0.1671 & +0.6399 \tabularnewline
+\raggedright work\_type\_Self-employed & -0.1397 & -0.4855 \tabularnewline
+\raggedright work\_type\_Govt\_job & -0.0703 & -0.2558 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+PC1 contrasts children ($+0.4534$) and Unknown smoking information ($+0.3712$) against greater age ($-0.4497$), ever-married status ($-0.4076$) and higher BMI ($-0.3133$). This is a demographic/recording contrast, not a validated clinical risk score. PC2 contrasts Private employment ($+0.6399$) against Self-employed ($-0.4855$) and Govt\_job ($-0.2558$), with other variables also contributing.
+
+Original encoded variables have non-zero cross-covariances; their coordinate axes are not thereby non-orthogonal. PCA instead constructs orthogonal directions with
+\[
+\operatorname{Cov}(Y_p)=\frac1{n-1}Y_p^TY_p=\operatorname{diag}(\lambda_1,\ldots,\lambda_p).
+\]
+Uncorrelated scores need not be statistically independent. Table~\ref{tab:stroke-evaluation} evaluates preservation, interpretability and visualization. Ten PCs remain the primary exploratory choice, with twelve as the higher-retention alternative. Tree ensembles or nonlinear visualization methods would be future comparisons to test, not demonstrated improvements here.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Evaluation of PCA on the standardized Stroke representation.}
+\label{tab:stroke-evaluation}
+\begin{tabular}{p{.22\linewidth}p{.34\linewidth}p{.34\linewidth}}
+\toprule
+\raggedright \textbf{Criterion} & \raggedright \textbf{Observed result} & \raggedright \textbf{Limitation} \tabularnewline
+\midrule
+\raggedright Information preservation & \raggedright 10 PCs retain 82.21\%; MSE = 0.17793. Fifteen PCs recover the standardized input to numerical precision. & \raggedright Variance retention is not target-information retention and does not reverse cleaning. \tabularnewline
+\raggedright Interpretability & \raggedright Weights describe demographic, employment and recording patterns. & \raggedright Components combine encoded variables and have no direct clinical units. \tabularnewline
+\raggedright Visualization & \raggedright Label-colored plots show overlap and shifts in class centroids. & \raggedright The first two PCs retain only 30.15\%; 2D separation is not a validation result. \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+\clearpage
+\section{Spotify Dataset}
+\subsection{Dataset Overview}
+The Spotify Dataset published by maharshipandya on Kaggle~\cite{spotify-data} is represented locally by \texttt{train.csv}, exported from its Hugging Face mirror in the supplied notebook. The raw file contains \textbf{114,000 rows} and 21 columns, including an old index column, track metadata, musical categories and numerical descriptors. There are \textbf{114} recorded genre labels in the raw export. The PCA experiment selects ten numerical audio features, exceeding the assignment's six-feature minimum.
+
+Track IDs may occur under multiple genre labels, so rows should not automatically be interpreted as distinct tracks. Popularity is an integer score from 0 to 100; genre classification, popularity regression and explicit-content classification are possible supervised tasks. This report uses genre as a descriptive label for unsupervised visualization. No prospective popularity prediction or recommendation model is trained.
+
+\subsection{Data Analysis}
+\subsubsection{Variable types and targets}
+Table~\ref{tab:spotify-types} separates measured magnitudes from metadata and integer-coded categories. Duration is a continuous time measurement stored in integer milliseconds; popularity is an integer score. Key is a cyclic category and mode is binary. Genre label encoding names classes rather than ordering musical styles; genre and popularity are excluded from the ten-input PCA fit.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Variable types in the raw Spotify export.}
+\label{tab:spotify-types}
+\begin{tabular}{p{.33\linewidth}p{.18\linewidth}p{.20\linewidth}p{.19\linewidth}}
+\toprule
+\raggedright \textbf{Attribute(s)} & \raggedright \textbf{Discrete / continuous} & \raggedright \textbf{Quantitative / qualitative} & \raggedright \textbf{Representation} \tabularnewline
+\midrule
+\raggedright Unnamed: 0 & \raggedright Discrete & \raggedright Qualitative & \raggedright Exported row index \tabularnewline
+\raggedright track\_id; artists; album\_name; track\_name & \raggedright Discrete & \raggedright Qualitative & \raggedright Identifier or nominal text \tabularnewline
+\raggedright track\_genre & \raggedright Discrete & \raggedright Qualitative & \raggedright Nominal label \tabularnewline
+\raggedright popularity & \raggedright Discrete & \raggedright Quantitative & \raggedright Integer score, 0--100 \tabularnewline
+\raggedright duration\_ms & \raggedright Continuous measurement & \raggedright Quantitative & \raggedright Time stored in integer milliseconds \tabularnewline
+\raggedright danceability; energy; speechiness; acousticness; instrumentalness; liveness; valence & \raggedright Continuous & \raggedright Quantitative & \raggedright Bounded audio descriptors \tabularnewline
+\raggedright loudness; tempo & \raggedright Continuous & \raggedright Quantitative & \raggedright dB and beats per minute \tabularnewline
+\raggedright explicit; mode & \raggedright Discrete & \raggedright Qualitative & \raggedright Binary categories \tabularnewline
+\raggedright key & \raggedright Discrete & \raggedright Qualitative & \raggedright Cyclic pitch class \tabularnewline
+\raggedright time\_signature & \raggedright Discrete & \raggedright Quantitative / categorical & \raggedright Beats-per-measure code \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Quality checks and cleaning}
+The raw file has one row missing artist, album and track names; 24,259 repeated track-ID occurrences; 157 zero-tempo records; and two durations below ten seconds. These screens identify observations requiring a handling decision, not proof of corrupted recordings. The pipeline drops the index column and missing-text row, keeps the first occurrence of each track ID, then requires positive tempo and duration of at least 10,000 ms. It sequentially applies 2.5-IQR fences to duration and loudness, recalculating the latter after the duration filter. Table~\ref{tab:spotify-cleaning} records the resulting \textbf{85,905 rows} and 20 columns before the join helper is added.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Spotify data quality and cleaning counts. Raw anomaly counts overlap with other exclusions.}
+\label{tab:spotify-cleaning}
+\begin{tabular}{p{.58\linewidth}rr}
+\toprule
+\raggedright \textbf{Measure} & \textbf{Raw} & \textbf{Cleaned} \tabularnewline
+\midrule
+\raggedright Rows & 114,000 & 85,905 \tabularnewline
+\raggedright Columns before join helper & 21 & 20 \tabularnewline
+\raggedright Rows missing the three text fields & 1 & 0 \tabularnewline
+\raggedright Repeated track\_id occurrences & 24,259 & 0 \tabularnewline
+\raggedright Zero-tempo records & 157 & 0 \tabularnewline
+\raggedright Duration below 10 s & 2 & 0 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:spotify-before-after} compares numerical distributions. Mean duration changes from 228,029.153 to 222,350.944 ms, and its SD falls from 107,297.713 to 75,425.011 ms. The longest retained recording is 492,340 ms. Keeping the first duplicate avoids repeated weighting but assigns one retained genre per track according to source order. Filtering long or quiet recordings can remove valid musical material and change genre representation. The raw exclusion counts overlap and should not be summed as independent removals.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Numerical distributions before and after Spotify cleaning.}
+\label{tab:spotify-before-after}
+\begin{tabular}{llrrrr}
+\toprule
+\textbf{Variable} & \textbf{Stage} & \textbf{Minimum} & \textbf{Mean} & \textbf{Maximum} & \textbf{SD} \tabularnewline
+\midrule
+duration\_ms & Raw & 0.000 & 228029.153 & 5237295.000 & 107297.713 \tabularnewline
+duration\_ms & Clean & 15800.000 & 222350.944 & 492340.000 & 75425.011 \tabularnewline
+loudness & Raw & -49.531 & -8.259 & 4.532 & 5.029 \tabularnewline
+loudness & Clean & -23.103 & -7.918 & 4.532 & 4.066 \tabularnewline
+tempo & Raw & 0.000 & 122.148 & 243.372 & 29.978 \tabularnewline
+tempo & Clean & 30.200 & 122.812 & 243.372 & 29.526 \tabularnewline
+popularity & Raw & 0.000 & 33.239 & 100.000 & 22.305 \tabularnewline
+popularity & Clean & 0.000 & 33.313 & 100.000 & 20.585 \tabularnewline
+\bottomrule
+\end{tabular}
+\par\smallskip{\footnotesize Duration is in milliseconds; loudness is in dB and tempo in beats per minute.}
+\end{table}
+
+\subsubsection{Data integration}
+The audio-feature table is sufficient for this PCA experiment. Artist metadata or release information could add context for other tasks, but those benefits are not evaluated. The notebook demonstrates a left join using \emph{simulated} follower counts, verification flags and band indicators, generated with seed 42; these are not observed external artist measurements.
+
+The join matches a normalized first-artist string against normalized full artist strings. The output grows from 85,905 track rows to 85,996 rows and 23 columns, showing that normalization does not produce a unique right-hand key. Collaborations, case variants, missing matches, different data granularity and time-dependent metadata all complicate linkage. The demonstration therefore does not establish successful real-world enrichment. Its synthetic columns are not used for the statistical analysis or PCA, which continue from the cleaned track table.
+
+\subsubsection{Transformation and scaling}
+The transformation demonstration applies $\log(1+\mathrm{duration\_ms})$, then standardizes log duration, loudness and tempo. The resulting sample SDs are 1.000006, consistent with population-based scaling followed by a sample-statistic display. Seven bounded descriptors are min--max scaled; explicit is mapped to 0/1; key is encoded by
+\[
+k_{\sin}=\sin(2\pi k/12),\qquad k_{\cos}=\cos(2\pi k/12).
+\]
+This encodes pitch-class adjacency, not every aspect of harmonic similarity. Genre is label-encoded as a target, while time signature is one-hot encoded with one reference level. Log transformation compresses the duration tail but does not establish normality.
+
+These demonstration columns must be distinguished from the actual PCA input. The PCA code selects the \emph{original cleaned} duration, danceability, energy, loudness, speechiness, acousticness, instrumentalness, liveness, valence and tempo, and z-score standardizes all ten. It does not use the log-duration column, genre codes, time-signature dummies or simulated artist attributes. Scaling is appropriate for these mixed measurement scales, rather than a universal requirement for every PCA.
+
+\subsubsection{Statistical measures and categorical associations}
+Table~\ref{tab:spotify-stats} gives means, sample variances and SDs computed from cleaned records. Duration has variance $5.688932\times10^9$ in squared milliseconds, whereas danceability variance is approximately 0.028658. This difference motivates scaling; variance magnitude alone does not verify outliers.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Descriptive statistics of the cleaned Spotify data.}
+\label{tab:spotify-stats}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Variable} & \textbf{Mean} & \textbf{Sample variance} & \textbf{SD} \tabularnewline
+\midrule
+popularity & 33.313102 & 423.743 & 20.585018 \tabularnewline
+duration\_ms & 222350.943868 & 5.68893e+09 & 75425.010958 \tabularnewline
+danceability & 0.570892 & 0.0286583 & 0.169288 \tabularnewline
+energy & 0.649826 & 0.0586099 & 0.242095 \tabularnewline
+loudness & -7.917871 & 16.5287 & 4.065556 \tabularnewline
+speechiness & 0.088169 & 0.0127746 & 0.113025 \tabularnewline
+acousticness & 0.313615 & 0.1074 & 0.327720 \tabularnewline
+instrumentalness & 0.151607 & 0.0923619 & 0.303911 \tabularnewline
+liveness & 0.217142 & 0.0374271 & 0.193461 \tabularnewline
+valence & 0.480760 & 0.0669394 & 0.258727 \tabularnewline
+tempo & 122.811514 & 871.789 & 29.526071 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+The notebook computes covariance as well as correlation. A displayed covariance submatrix includes $\operatorname{cov}(\mathrm{popularity},\mathrm{duration})=14461.447904$, $\operatorname{cov}(\mathrm{duration},\mathrm{danceability})=-890.164021$ and $\operatorname{cov}(\mathrm{duration},\mathrm{energy})=1897.098934$. Their numerical sizes depend on units, whereas Pearson coefficients permit scale-independent comparison.
+
+Categorical analysis can use modes, frequencies and contingency tables. The executed tests in Table~\ref{tab:spotify-association} concern explicit status versus musical mode, and explicit status versus popularity. The $2\times2$ chi-square test uses Yates correction. Its small p-value is accompanied by Cramer's $V=0.0343$, indicating a weak association despite statistical significance. The point-biserial coefficient is likewise small, $r=0.0552$. These tests do not establish causation or assess genre-prediction performance. The effect-size convention used in the notebook is
+\[
+V=\sqrt{\frac{\chi^2}{n\min(R-1,C-1)}}.
+\]
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Categorical association results for cleaned Spotify records.}
+\label{tab:spotify-association}
+\begin{tabular}{p{.57\linewidth}rr}
+\toprule
+\raggedright \textbf{Pair / measure} & \textbf{Statistic} & \textbf{p-value} \tabularnewline
+\midrule
+\raggedright explicit vs. mode: chi-square & 101.3453 & 7.7268e-24 \tabularnewline
+\raggedright explicit vs. mode: Cramer's V & 0.0343 & --- \tabularnewline
+\raggedright explicit vs. popularity: point-biserial r & 0.0552 & 4.7425e-59 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Covariance and correlation patterns}
+Figures~\ref{fig:spotify-corr-full} and~\ref{fig:spotify-corr-triangle} show the same cleaned numerical correlation matrix, including popularity. From Table~\ref{tab:spotify-correlations}, energy and loudness are the strongest pair in absolute magnitude ($r=+0.7565$), while energy and acousticness have $r=-0.7158$. Danceability and valence are moderately positively associated ($r=+0.4627$). The coefficients are computed on the cleaned records.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.94\textwidth,height=.78\textheight,keepaspectratio]{hoang_spotify/figures/spotify_fig1_corr_full.png}
+\caption{Pearson correlation matrix of eleven cleaned Spotify numerical attributes, including popularity.}
+\label{fig:spotify-corr-full}
+\end{figure}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.94\textwidth,height=.78\textheight,keepaspectratio]{hoang_spotify/figures/spotify_fig2_corr_triangle.png}
+\caption{Lower-triangle view of the same Spotify correlation matrix.}
+\label{fig:spotify-corr-triangle}
+\end{figure}
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Selected correlations in the cleaned Spotify data.}
+\label{tab:spotify-correlations}
+\begin{tabular}{p{.69\linewidth}r}
+\toprule
+\raggedright \textbf{Feature pair} & \textbf{Pearson r} \tabularnewline
+\midrule
+\raggedright energy vs. loudness & +0.7565 \tabularnewline
+\raggedright energy vs. acousticness & -0.7158 \tabularnewline
+\raggedright loudness vs. acousticness & -0.5633 \tabularnewline
+\raggedright danceability vs. valence & +0.4627 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+Figure~\ref{fig:spotify-pairs} visualizes the positive and negative pairs in a sample of 3,000 tracks. The patterns are consistent with shared variation in intensity, loudness and acousticness, but do not establish recording mechanisms. Pearson correlation describes linear association only. Correlated measurements motivate examining PCA compression, without proving that discarded variation is noise or that prediction will improve.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.94\textwidth,height=.78\textheight,keepaspectratio]{hoang_spotify/figures/spotify_fig3_correlated_pairs.png}
+\caption{Energy against loudness and acousticness in a reproducible sample of 3,000 cleaned tracks. Lines summarize sample linear trends.}
+\label{fig:spotify-pairs}
+\end{figure}
+
+\subsubsection{Summary of data preparation}
+Cleaning yields a distinct-track analytical table under a first-occurrence rule and reduces extreme duration/loudness values. The resulting representation is conditional on filtering choices and may underrepresent atypical recordings. Integration is a synthetic join demonstration with row multiplication, not evidence of richer measured data. Transformation examples illustrate alternative representations, while the actual PCA consistently uses ten standardized original audio columns. These distinctions prevent attributing results to preprocessing steps that were not used in the PCA fit.
+
+\subsection{Principal Component Analysis}
+\subsubsection{Preprocessing and computation}
+PCA is fitted on all 85,905 cleaned records using ten standardized numerical audio inputs. Metadata, genre, popularity and synthetic artist variables are excluded. The computation follows the same centering, covariance and eigenvector formulation used for Stroke. With population scaling and sample covariance, the diagonal is $n/(n-1)$ and EVRs use the sum of eigenvalues. The model is fitted without genre labels; labels are used only after fitting for visualization.
+
+\subsubsection{Explained variance and component selection}
+Table~\ref{tab:spotify-evr} reproduces the executed PCA output. PC1 retains 26.40\%, PC2 16.39\%, and their cumulative retention is \textbf{42.79\%}. Figure~\ref{fig:spotify-scree} displays the individual ratios and cumulative curve. \textbf{Six PCs} retain \textbf{82.77\%}, satisfying the 80\% threshold with a 40\% dimension reduction. \textbf{Seven} retain \textbf{90.32\%} with 30\% reduction, providing a higher-retention alternative. These are variance-based choices, not validated optima for genre classification.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Spotify PCA variance table reproduced from the executed notebook.}
+\label{tab:spotify-evr}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{PC} & \textbf{Eigenvalue} & \textbf{EVR (\%)} & \textbf{Cumulative (\%)} \tabularnewline
+\midrule
+PC1 & 2.640 & 26.40 & 26.40 \tabularnewline
+PC2 & 1.639 & 16.39 & 42.79 \tabularnewline
+PC3 & 1.284 & 12.84 & 55.62 \tabularnewline
+PC4 & 0.986 & 9.86 & 65.48 \tabularnewline
+PC5 & 0.907 & 9.07 & 74.55 \tabularnewline
+PC6 & 0.822 & 8.22 & 82.77 \tabularnewline
+PC7 & 0.755 & 7.55 & 90.32 \tabularnewline
+PC8 & 0.467 & 4.67 & 94.99 \tabularnewline
+PC9 & 0.357 & 3.57 & 98.55 \tabularnewline
+PC10 & 0.145 & 1.45 & 100.00 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.94\textwidth,height=.78\textheight,keepaspectratio]{hoang_spotify/figures/spotify_fig4_pca_variance.png}
+\caption{Individual and cumulative variance of the ten standardized Spotify audio features.}
+\label{fig:spotify-scree}
+\end{figure}
+
+Selecting the leading PCs preserves the largest possible projected variance for a given dimension. PC9 and PC10 retain 3.57\% and 1.45\%, respectively, but their smaller variance is not proof of noise or absent target information. Unlike the full one-hot Stroke representation, the Spotify variance table has no zero-variance components. No separate numerical Kaiser experiment is executed in this notebook; cumulative variance supplies the stated selection rule.
+
+\subsubsection{Varying the retained dimension and reconstruction}
+Table~\ref{tab:spotify-varying-p} varies the number of leading PCs using the executed cumulative-variance results. Two PCs reduce dimension by 80\% but retain only 42.79\%; four retain 65.48\%; six retain 82.77\%. Adding PCs improves representation fidelity at the cost of less compression.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Varying the retained dimension in the Spotify PCA representation.}
+\label{tab:spotify-varying-p}
+\begin{tabular}{rrr}
+\toprule
+\textbf{Retained PCs} & \textbf{Retained variance (\%)} & \textbf{Dimension reduction (\%)} \tabularnewline
+\midrule
+2 & 42.79 & 80 \tabularnewline
+4 & 65.48 & 60 \tabularnewline
+6 & 82.77 & 40 \tabularnewline
+7 & 90.32 & 30 \tabularnewline
+10 & 100.00 & 0 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+Reconstruction is assessed through retained variance; no separate inverse-transform MSE experiment is performed for Spotify. For these standardized inputs, the spectral identity established above gives the theoretical relationship
+\[
+\mathrm{MSE}(p)=\frac{n-1}{nd}\sum_{j>p}\lambda_j=1-\mathrm{CEVR}_p.
+\]
+This explains the reconstruction trade-off; it is not an additional empirical validation. Retaining all ten directions permits reconstruction to numerical precision, whereas retaining fewer discards measured variance.
+
+\subsubsection{Two-dimensional distributions}
+Figure~\ref{fig:spotify-biplot} shows 1,800 tracks, sampled with seed 42 as 300 each from acoustic, classical, death-metal, edm, hip-hop and salsa. The same scaler and full PCA fitted on all cleaned records transform this sample. PC1--PC2 retain 42.79\% of overall variance; the displayed subset is not the full genre distribution.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=.94\textwidth,height=.78\textheight,keepaspectratio]{hoang_spotify/figures/spotify_fig5_pca_biplot.png}
+\caption{Spotify PC1--PC2 scores for 300 tracks from each of six genres. Arrows are eigenvector weights multiplied by four for visibility.}
+\label{fig:spotify-biplot}
+\end{figure}
+
+In the fitted orientation, PC1 has positive energy/loudness directions and an opposing acousticness direction. The selected death-metal and classical groups illustrate that contrast, while acoustic and classical records overlap. PC2 reflects danceability and valence against other variation, including duration and instrumentalness. The genre clouds are not perfectly separated, and selecting six contrasting genres does not establish separability across the full label set. Arrow lengths are unit eigenvector coefficients multiplied by four for display, not feature--score correlations or scaled loadings. Sign choices must be read consistently with the plotted basis.
+
+\subsubsection{Critical evaluation}
+Original audio measurements have interpretable units or descriptor scales. PCA scores instead mix these inputs into uncorrelated coordinates, losing direct meanings such as a tempo in beats per minute. The ten-to-six reduction preserves most variance under the chosen criterion, but discarded variance may include genre-related variation. Table~\ref{tab:spotify-evaluation} separates these observed results from untested claims about noise removal or downstream performance. Nonlinear visualization and predictive comparisons would require further experiments.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Evaluation of PCA on the standardized Spotify audio features.}
+\label{tab:spotify-evaluation}
+\begin{tabular}{p{.22\linewidth}p{.34\linewidth}p{.34\linewidth}}
+\toprule
+\raggedright \textbf{Criterion} & \raggedright \textbf{Observed result} & \raggedright \textbf{Limitation} \tabularnewline
+\midrule
+\raggedright Information preservation & \raggedright Six PCs retain 82.77\%; seven retain 90.32\%. & \raggedright No empirical reconstruction-error experiment is executed in the supplied notebook. \tabularnewline
+\raggedright Interpretability & \raggedright The biplot relates PC1 to energy/loudness versus acousticness. & \raggedright Scores combine ten measurements; arrow length includes an arbitrary display factor. \tabularnewline
+\raggedright Visualization & \raggedright A genre-colored sample illustrates contrasts and overlap. & \raggedright Only six genres are displayed, and two PCs retain 42.79\% of total variance. \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+\clearpage
+\section{Cross-Dataset Comparison}
+Table~\ref{tab:comparison} contrasts the representations rather than ranking the datasets by EVR. Stroke mixes categorical indicators and numerical measurements, so one-hot expansion and rare-category scaling affect the covariance structure; Spotify PCA uses ten numerical audio descriptors. Their primary choices retain similar variance (\textbf{82.21\%} and \textbf{82.77\%}), but arise from different geometries and preprocessing. Spotify's higher first-two-PC retention does not by itself imply better analysis or classification. Stroke shows extensive binary-label overlap; the Spotify sample shows selected-genre contrasts with overlap. Neither plot validates a predictor, and neither analysis establishes causal effects.
+\begin{table}[htbp]
+\centering\small
+\setlength{\tabcolsep}{4pt}\renewcommand{\arraystretch}{1.12}
+\caption{Comparison of the two datasets and their PCA representations.}
+\label{tab:comparison}
+\begin{tabular}{p{.22\linewidth}p{.34\linewidth}p{.34\linewidth}}
+\toprule
+\raggedright \textbf{Property} & \raggedright \textbf{Stroke} & \raggedright \textbf{Spotify} \tabularnewline
+\midrule
+\raggedright Raw / cleaned rows & \raggedright 5,110 / 5,109 & \raggedright 114,000 / 85,905 \tabularnewline
+\raggedright PCA input & \raggedright 17 encoded columns from 10 variables & \raggedright 10 numerical audio features \tabularnewline
+\raggedright Feature types & \raggedright Mixed numerical and nominal & \raggedright Metadata, nominal labels, numerical audio \tabularnewline
+\raggedright Cleaning & \raggedright Median BMI; heuristic cap; exclude one category record & \raggedright Text missingness; track-ID deduplication; domain filters; sequential IQR \tabularnewline
+\raggedright Integration & \raggedright Investigated; not performed & \raggedright Synthetic artist-join demonstration; excluded from PCA \tabularnewline
+\raggedright Scaling & \raggedright Binary/one-hot and z-score & \raggedright Z-score on the original cleaned audio columns \tabularnewline
+\raggedright Primary reduction & \raggedright 10 PCs: 82.21\%; 41.2\% reduction & \raggedright 6 PCs: 82.77\%; 40\% reduction \tabularnewline
+\raggedright Higher retention & \raggedright 12 PCs: 92.08\% & \raggedright 7 PCs: 90.32\% \tabularnewline
+\raggedright First two PCs & \raggedright 30.15\%; extensive label overlap & \raggedright 42.79\%; selected-genre contrasts and overlap \tabularnewline
+\bottomrule
+\end{tabular}
+\end{table}
+
+\clearpage
+\begin{thebibliography}{9}
+\addcontentsline{toc}{section}{References}
+\raggedright
+\bibitem{assignment} \textit{TD1-PCA: Labwork T1---Principal Component Analysis}. Supplied assignment specification.
+\bibitem{dm2} \textit{DM 2: Data Preparation and Analysis}. Course lecture slides, especially pp.~5, 8--9 and 12--19.
+\bibitem{dm25} \textit{DM 2.5: Feature Selection}. Course lecture slides, especially pp.~4 and 6--12.
+\bibitem{dm3} Nhat-Quang Doan. \textit{DM 3: Statistics and PCA}. Course lecture slides, especially pp.~8--20, 24, 27, 29 and 33--35.
+\bibitem{stroke-data} fedesoriano. \textit{Stroke Prediction Dataset}. Kaggle. \url{https://www.kaggle.com/datasets/fedesoriano/stroke-prediction-dataset}.
+\bibitem{spotify-data} maharshipandya. \textit{Spotify Tracks Dataset}. Kaggle. \url{https://www.kaggle.com/datasets/maharshipandya/-spotify-tracks-dataset}.
+\bibitem{sklearn} Scikit-learn developers. \textit{PCA and StandardScaler documentation}. \url{https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html}; \url{https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.StandardScaler.html}.
+\bibitem{source-code} Nguyen Minh Nhat and Nguyen Minh Hoang. Source Code and Notebooks for Labwork 1 (PCA). GitHub repository. \url{https://github.com/TheEnemen-1/Machine_Learning-Data_Mining-2.git}.
+\end{thebibliography}
+
+\end{document}
